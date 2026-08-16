@@ -18,7 +18,7 @@ app = FastAPI()
 
 @app.get("/")
 async def get_index():
-    return FileResponse("../frontend/index.html")
+    return FileResponse("./frontend/index.html")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
