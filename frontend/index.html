@@ -1,1 +1,823 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GP Web - Apprentissage de fonction</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f8f9fa; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; max-width: 1400px; margin: auto; }
+        .panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex: 1 1 300px; }
+        .panel h2 { margin-top: 0; font-size: 1.2em; }
+        .param-group { display: flex; flex-wrap: wrap; gap: 10px; }
+        .param-group label { display: flex; flex-direction: column; font-size: 0.9em; flex: 1 0 100px; }
+        .param-group input { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .graph-container { position: relative; border: 1px solid #ddd; border-radius: 4px; background: white; }
+        .graph-container svg { display: block; }
+        /* Modal for enlarged graphs */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:1000; }
+        .modal-content { background:white; padding:12px; border-radius:8px; max-width:90vw; max-height:90vh; overflow:auto; box-shadow:0 6px 24px rgba(0,0,0,0.3); }
+        .modal-close { position: absolute; right:8px; top:8px; background:#f44336; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer; }
+        .graph-zoom-hint { font-size:0.8em; color:#666; margin-top:6px; }
+        .status { margin-top: 10px; font-size: 0.9em; }
+        .formula-display { background: #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
+        #file-input { margin: 10px 0; }
+        .flex-row { display: flex; gap: 20px; flex-wrap: wrap; }
+        .flex-col { flex: 1; min-width: 300px; }
+        .result-container { min-height: 200px; }
+        .result-container svg { width: 100%; height: auto; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="panel">
+        <h2> Données</h2>
+        <input type="file" id="file-input" accept=".csv">
+        <div id="data-status" class="status">Aucun fichier chargé</div>
+        <div class="param-group" id="range-controls" style="margin-top:10px; display:none; gap:10px;">
+            <label>Début <select id="data-range-start"></select></label>
+            <label>Fin <select id="data-range-end"></select></label>
+        </div>
+        <div class="param-group" id="forecast-controls" style="margin-top:10px; display:none; gap:10px;">
+            <label>Année de départ <select id="forecast-start"></select></label>
+            <label>Horizon <select id="forecast-horizon"></select></label>
+        </div>
+        <div class="graph-container" id="data-graph" style="height:250px;"></div>
+        <div class="graph-container" id="function-graph" style="height:250px; margin-top: 20px;"></div>
+        <div id="forecast-values" style="margin-top:10px; border:1px solid #ddd; border-radius:4px; background:#f8f9fa; max-height:180px; overflow-y:auto; padding:10px; font-family:monospace; white-space:pre-wrap;"></div>
+    </div>
+    <div class="panel">
+        <h2> Paramètres</h2>
+        <div class="param-group">
+            <label>Population <input type="number" id="size-population" value="200" min="10"></label>
+            <label>Échantillon <input type="number" id="size-echantillon" value="50" min="5"></label>
+            <label>Profondeur <input type="number" id="max-depth" value="5" min="1"></label>
+            <label>Itérations <input type="number" id="max-iterations" value="50" min="1"></label>
+            <label>Constantes max <input type="number" id="max-N-valeur" value="10" min="0"></label>
+            <label>Seuil fitness <input type="number" id="seuil-fitness" value="0.01" step="0.001"></label>
+            <label>Prob. mutation <input type="number" id="tolerance-mutation" value="0.7" step="0.1"></label>
+            <label>Sélection <select id="mode-selection">
+                <option value="best">Meilleur</option>
+                <option value="worst">Pire</option>
+                <option value="rand">Aléatoire</option>
+            </select></label>
+            <label>Mariage <select id="mode-mariage">
+                <option value="best">Best</option>
+                <option value="extrem">Extrême</option>
+                <option value="rand">Aléatoire</option>
+            </select></label>
+            <label>Croisement <select id="mode-croisement">
+                <option value="swap-middle">Swap Middle</option>
+                <option value="absorp-partielle">Absorption partielle</option>
+                <option value="absorp-totale">Absorption totale</option>
+            </select></label>
+            <label>Remplacement <select id="mode-remplacement">
+                <option value="mixt_best">Mixte meilleur</option>
+                <option value="child_only">Enfants seulement</option>
+                <option value="child_add">Parents + enfants</option>
+                <option value="mixt_rand">Mixte aléatoire</option>
+            </select></label>
+            <label>Mutation <select id="mode-mutation">
+                <option value="replace">Replace</option>
+                <option value="swap">Swap</option>
+                <option value="deplace">Déplace</option>
+            </select></label>
+            <label>Fonctions binaires
+                <select id="funct-binaire" multiple size="5">
+                    <option value="+" selected>+</option>
+                    <option value="-" selected>-</option>
+                    <option value="*" selected>*</option>
+                    <option value="**" selected>**</option>
+                    <option value="/" selected>/</option>
+                </select>
+            </label>
+            <label>Fonctions unaires
+                <select id="funct-unaire" multiple size="8">
+                    <option value="sin" selected>sin</option>
+                    <option value="cos" selected>cos</option>
+                    <option value="ln" selected>ln</option>
+                    <option value="sqrt" selected>sqrt</option>
+                    <option value="tan" selected>tan</option>
+                    <option value="ctg" selected>ctg</option>
+                    <option value="e" selected>exp</option>
+                    <option value="tanh" selected>tanh</option>
+                    <option value="abs" selected>abs</option>
+                </select>
+            </label>
+        </div>
+        <div style="margin-top:15px;">
+            <button id="btn-start">▶ Démarrer</button>
+            <button id="btn-stop" disabled>⏹ Arrêter</button>
+        </div>
+        <div class="progress-group" style="margin-top:12px;">
+            <label for="progress-bar" style="font-size:0.9em; margin-bottom:4px; display:block;">Avancement</label>
+            <progress id="progress-bar" value="0" max="1" style="width:100%; height:18px;"></progress>
+            <div id="progress-label" class="status">0 / 0</div>
+        </div>
+        <div id="status-msg" class="status">Prêt</div>
+    </div>
+    <div class="panel" style="flex:2;">
+        <h2> Résultats</h2>
+        <div class="flex-row">
+            <div class="flex-col">
+                <div class="graph-container" id="convergence-graph" style="height:200px;"></div>
+            </div>
+            <div class="flex-col">
+                <div class="graph-container" id="prediction-graph" style="height:200px;"></div>
+            </div>
+        </div>
 
+        <div style="margin-top:10px;">
+            <div><strong>Meilleure formule :</strong></div>
+            <div id="formula-display" class="formula-display">—</div>
+            <div><strong>Fitness :</strong> <span id="fitness-display">—</span></div>
+            <div><strong>Itération :</strong> <span id="iteration-display">—</span></div>
+            <div><strong>Temps :</strong> <span id="time-display">—</span></div>
+        </div>
+        <div class="result-container" id="result-container" style="margin-top:10px; border:1px solid #ddd; border-radius:4px; min-height:200px; max-height:260px; overflow-y:auto; padding:10px; background:#f8f9fa;"></div>
+    </div>
+</div>
+<script>
+    // ---------- Global state ----------
+    let ws = null;
+    let isRunning = false;
+    let dataX = [];
+    let dataY = [];
+    let selectedX = [];
+    let selectedY = [];
+    let selectedStart = 0;
+    let selectedEnd = 0;
+
+    // Références DOM
+    const fileInput = document.getElementById('file-input');
+    const dataStatus = document.getElementById('data-status');
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+    const statusMsg = document.getElementById('status-msg');
+    const progressBar = document.getElementById('progress-bar');
+    const progressLabel = document.getElementById('progress-label');
+    const resultContainer = document.getElementById('result-container');
+    const formulaDisplay = document.getElementById('formula-display');
+    const fitnessDisplay = document.getElementById('fitness-display');
+    const iterationDisplay = document.getElementById('iteration-display');
+    const timeDisplay = document.getElementById('time-display');
+
+    // Graphiques D3
+    let dataGraph = null;
+    let convGraph = null;
+    let predGraph = null;
+    let funcGraph = null;
+
+
+    function initGraphs() {
+        // Graphique des données (points)
+        dataGraph = createScatterPlot('#data-graph', 'Données chargées');
+        convGraph = createLinePlot('#convergence-graph', 'Convergence');
+        predGraph = createScatterWithLine('#prediction-graph', 'Prédiction');
+        funcGraph = createScatterWithLine('#function-graph', 'Fonction estimée');
+        funcGraph.strokeColor = 'green';
+        funcGraph.lineColor2 = 'orange';
+        funcGraph.pointColor = 'steelblue';
+        predGraph.strokeColor = 'red';
+        predGraph.pointColor = 'steelblue';
+
+    }
+
+    // ---------- Utilitaires D3 ----------
+    function createScatterPlot(selector, title) {
+        const container = document.querySelector(selector);
+        const width = container.clientWidth || 400;
+        const height = container.clientHeight || 250;
+        const svg = d3.select(selector)
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .style('width', width + 'px')
+            .style('height', height + 'px')
+            .style('background', 'white');
+        svg.append('text')
+            .attr('x', 10)
+            .attr('y', 20)
+            .style('font-size', '12px')
+            .style('font-weight', 'bold')
+            .text(title);
+        const g = svg.append('g');
+        svg.node().addEventListener('dblclick', () => openGraphModal(svg.node(), title));
+        return { svg, g, width, height, points: [] };
+    }
+
+    function createLinePlot(selector, title) {
+        const container = document.querySelector(selector);
+        const width = container.clientWidth || 400;
+        const height = container.clientHeight || 200;
+        const svg = d3.select(selector)
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .style('width', width + 'px')
+            .style('height', height + 'px')
+            .style('background', 'white');
+        svg.append('text')
+            .attr('x', 10)
+            .attr('y', 20)
+            .style('font-size', '12px')
+            .style('font-weight', 'bold')
+            .text(title);
+        const g = svg.append('g');
+        svg.node().addEventListener('dblclick', () => openGraphModal(svg.node(), title));
+        return { svg, g, width, height };
+    }
+
+    function createScatterWithLine(selector, title) {
+        const container = document.querySelector(selector);
+        const width = container.clientWidth || 400;
+        const height = container.clientHeight || 200;
+        const svg = d3.select(selector)
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .style('width', width + 'px')
+            .style('height', height + 'px')
+            .style('background', 'white');
+        svg.append('text')
+            .attr('x', 10)
+            .attr('y', 20)
+            .style('font-size', '12px')
+            .style('font-weight', 'bold')
+            .text(title);
+        const g = svg.append('g');
+        svg.node().addEventListener('dblclick', () => openGraphModal(svg.node(), title));
+        return { svg, g, width, height, points: [], lineData: [], lineData2: [] };
+    }
+
+    function createTree(selector) {
+        const container = document.querySelector(selector);
+        const width = container.clientWidth || 400;
+        const height = 200;
+        const svg = d3.select(selector)
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .style('background', 'white');
+        const g = svg.append('g');
+        return { svg, g, width, height };
+    }
+
+    // ---------- Modal for enlarged graph ----------
+    function openGraphModal(svgNode, title) {
+        // avoid opening multiple modals
+        if (document.getElementById('graph-modal-overlay')) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'graph-modal-overlay';
+        overlay.className = 'modal-overlay';
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'modal-close';
+        closeBtn.textContent = 'Fermer';
+        closeBtn.addEventListener('click', () => { document.body.removeChild(overlay); });
+        const titleEl = document.createElement('div');
+        titleEl.style.fontWeight = 'bold';
+        titleEl.style.marginBottom = '8px';
+        titleEl.textContent = title || '';
+        // clone the svg node to keep original in place
+        const clone = svgNode.cloneNode(true);
+        // scale cloned svg to fit viewport
+        clone.style.width = Math.min(window.innerWidth * 0.9, (svgNode.getAttribute('width') || 800) * 1.6) + 'px';
+        clone.style.height = 'auto';
+        clone.style.display = 'block';
+        content.appendChild(closeBtn);
+        content.appendChild(titleEl);
+        content.appendChild(clone);
+        overlay.appendChild(content);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) document.body.removeChild(overlay);
+        });
+        document.body.appendChild(overlay);
+    }
+
+    // ---------- Mise à jour des graphiques ----------
+    function updateDataGraph(x, y) {
+        const g = dataGraph;
+        g.points = x.map((xi, i) => ({ x: xi, y: y[i] }));
+        drawScatter(g);
+    }
+
+    function drawScatter(gObj) {
+        const { svg, g, width, height } = gObj;
+        const margin = { top: 30, right: 20, bottom: 30, left: 40 };
+        const innerW = width - margin.left - margin.right;
+        const innerH = height - margin.top - margin.bottom;
+        g.selectAll('*').remove();
+        const xExtent = d3.extent(gObj.points, d => d.x);
+        const yExtent = d3.extent(gObj.points, d => d.y);
+        if (xExtent[0] === xExtent[1]) xExtent[1] = xExtent[0] + 1;
+        if (yExtent[0] === yExtent[1]) yExtent[1] = yExtent[0] + 1;
+        const xScale = d3.scaleLinear().domain(xExtent).range([0, innerW]);
+        const yScale = d3.scaleLinear().domain(yExtent).range([innerH, 0]);
+        const xAxis = d3.axisBottom(xScale).ticks(5);
+        const yAxis = d3.axisLeft(yScale).ticks(5);
+        const plot = g.append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+        plot.append('g').call(xAxis).attr('transform', `translate(0,${innerH})`);
+        plot.append('g').call(yAxis);
+        plot.selectAll('circle')
+            .data(gObj.points)
+            .enter()
+            .append('circle')
+            .attr('cx', d => xScale(d.x))
+            .attr('cy', d => yScale(d.y))
+            .attr('r', 3)
+            .style('fill', 'steelblue');
+    }
+
+    function updateConvergence(iterations, fitnesses) {
+        const g = convGraph;
+        g.data = iterations.map((it, i) => ({ x: it, y: fitnesses[i] }));
+        drawLine(g);
+    }
+
+    function drawLine(gObj) {
+        const { svg, g, width, height } = gObj;
+        const margin = { top: 30, right: 20, bottom: 30, left: 40 };
+        const innerW = width - margin.left - margin.right;
+        const innerH = height - margin.top - margin.bottom;
+        g.selectAll('*').remove();
+        if (!gObj.data || gObj.data.length === 0) return;
+        const xExtent = d3.extent(gObj.data, d => d.x);
+        const yExtent = d3.extent(gObj.data, d => d.y);
+        if (xExtent[0] === xExtent[1]) xExtent[1] = xExtent[0] + 1;
+        if (yExtent[0] === yExtent[1]) yExtent[1] = yExtent[0] + 1;
+        const xScale = d3.scaleLinear().domain(xExtent).range([0, innerW]);
+        const yScale = d3.scaleLinear().domain(yExtent).range([innerH, 0]);
+        const xAxis = d3.axisBottom(xScale).ticks(5);
+        const yAxis = d3.axisLeft(yScale).ticks(5);
+        const plot = g.append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+        plot.append('g').call(xAxis).attr('transform', `translate(0,${innerH})`);
+        plot.append('g').call(yAxis);
+        const line = d3.line()
+            .x(d => xScale(d.x))
+            .y(d => yScale(d.y));
+        plot.append('path')
+            .datum(gObj.data)
+            .attr('fill', 'none')
+            .attr('stroke', 'red')
+            .attr('stroke-width', 2)
+            .attr('d', line);
+    }
+
+    function updatePrediction(xData, yReal, yPred) {
+        const g = predGraph;
+        g.points = xData.map((xi, i) => ({ x: xi, y: yReal[i] }));
+        g.lineData = xData.map((xi, i) => ({ x: xi, y: yPred[i] }));
+        drawScatterWithLine(g);
+    }
+
+    function formulaToJs(formula) {
+        if (typeof formula !== 'string') return null;
+        return formula
+            .replace(/\bln\s*\(/g, 'Math.log(')
+            .replace(/\bsqrt\s*\(/g, 'Math.sqrt(')
+            .replace(/\bsin\s*\(/g, 'Math.sin(')
+            .replace(/\bcos\s*\(/g, 'Math.cos(')
+            .replace(/\btan\s*\(/g, 'Math.tan(')
+            .replace(/\btanh\s*\(/g, 'Math.tanh(')
+            .replace(/\babs\s*\(/g, 'Math.abs(')
+            .replace(/\be\s*\(/g, 'Math.exp(')
+            .replace(/\bctg\s*\(/g, '(1/Math.tan(');
+    }
+
+    function evaluateFormulaJs(jsFormula, x) {
+        try {
+            const fn = new Function('x', 'return ' + jsFormula);
+            return fn(x);
+        } catch (err) {
+            return NaN;
+        }
+    }
+
+    function computeForecastPoints(formula, startValue, horizon) {
+        const jsFormula = formulaToJs(formula);
+        if (!jsFormula) return [];
+        const points = [];
+        for (let i = 0; i < horizon; i++) {
+            const x = startValue + i;
+            const y = evaluateFormulaJs(jsFormula, x);
+            if (typeof y === 'number' && !Number.isNaN(y) && Number.isFinite(y)) {
+                points.push({ x, y });
+            }
+        }
+        return points;
+    }
+
+    function drawScatterWithLine(gObj) {
+        const { svg, g, width, height } = gObj;
+        const margin = { top: 30, right: 20, bottom: 30, left: 40 };
+        const innerW = width - margin.left - margin.right;
+        const innerH = height - margin.top - margin.bottom;
+        g.selectAll('*').remove();
+        if (!gObj.points || gObj.points.length === 0) return;
+        const allX = [...gObj.points.map(d => d.x), ...gObj.lineData.map(d => d.x), ...(Array.isArray(gObj.lineData2) ? gObj.lineData2.map(d => d.x) : [])];
+        const allY = [...gObj.points.map(d => d.y), ...gObj.lineData.map(d => d.y), ...(Array.isArray(gObj.lineData2) ? gObj.lineData2.map(d => d.y) : [])];
+        const xExtent = d3.extent(allX);
+        const yExtent = d3.extent(allY);
+        if (xExtent[0] === xExtent[1]) xExtent[1] = xExtent[0] + 1;
+        if (yExtent[0] === yExtent[1]) yExtent[1] = yExtent[0] + 1;
+        const xScale = d3.scaleLinear().domain(xExtent).range([0, innerW]);
+        const yScale = d3.scaleLinear().domain(yExtent).range([innerH, 0]);
+        const xAxis = d3.axisBottom(xScale).ticks(5);
+        const yAxis = d3.axisLeft(yScale).ticks(5);
+        const plot = g.append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+        plot.append('g').call(xAxis).attr('transform', `translate(0,${innerH})`);
+        plot.append('g').call(yAxis);
+
+        // points réels
+        plot.selectAll('circle')
+            .data(gObj.points)
+            .enter()
+            .append('circle')
+            .attr('cx', d => xScale(d.x))
+            .attr('cy', d => yScale(d.y))
+            .attr('r', 3)
+            .style('fill', gObj.pointColor || 'steelblue');
+
+        // ligne prédite
+        const line = d3.line()
+            .x(d => xScale(d.x))
+            .y(d => yScale(d.y));
+        plot.append('path')
+            .datum(gObj.lineData)
+            .attr('fill', 'none')
+            .attr('stroke', gObj.strokeColor || 'red')
+            .attr('stroke-width', 2)
+            .attr('d', line);
+
+        if (Array.isArray(gObj.lineData2) && gObj.lineData2.length > 0) {
+            plot.append('path')
+                .datum(gObj.lineData2)
+                .attr('fill', 'none')
+                .attr('stroke', gObj.lineColor2 || 'orange')
+                .attr('stroke-width', 2)
+                .attr('stroke-dasharray', '6,4')
+                .attr('d', line);
+        }
+    }
+
+ 
+    // ---------- Gestion du fichier CSV ----------
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            const text = ev.target.result;
+            const lines = text.split('\n').filter(l => l.trim() !== '');
+            const x = [], y = [];
+            lines.forEach(line => {
+                const parts = line.split(/[;,]\s*/);
+                if (parts.length >= 2) {
+                    const xi = parseFloat(parts[0]);
+                    const yi = parseFloat(parts[1]);
+                    if (!isNaN(xi) && !isNaN(yi)) {
+                        x.push(xi);
+                        y.push(yi);
+                    }
+                }
+            });
+            if (x.length === 0) {
+                dataStatus.textContent = 'Fichier invalide ou vide.';
+                return;
+            }
+            dataX = x;
+            dataY = y;
+            populateRangeSelectors(x.length);
+            populateForecastSelectors(x);
+            dataStatus.textContent = `${x.length} points chargés. Plage : 1 - ${x.length}`;
+            updateDataGraph(x, y);
+        };
+        reader.readAsText(file);
+    });
+
+    // ---------- WebSocket ----------
+    function startAlgo() {
+        if (isRunning) return;
+        if (dataX.length === 0) {
+            statusMsg.textContent = 'Veuillez charger un fichier CSV.';
+            return;
+        }
+
+        function getSelectedValues(selectId) {
+            const select = document.getElementById(selectId);
+            return Array.from(select.selectedOptions).map(option => option.value);
+        }
+
+        function getSelectedRange() {
+            const startSelect = document.getElementById('data-range-start');
+            const endSelect = document.getElementById('data-range-end');
+            let start = parseInt(startSelect.value, 10);
+            let end = parseInt(endSelect.value, 10);
+            if (isNaN(start) || start < 0) start = 0;
+            if (isNaN(end) || end < 0) end = dataX.length - 1;
+            if (start > end) [start, end] = [end, start];
+            return [start, end];
+        }
+
+        const [startIndex, endIndex] = getSelectedRange();
+        selectedStart = startIndex;
+        selectedEnd = endIndex;
+        selectedX = dataX.slice(startIndex, endIndex + 1);
+        selectedY = dataY.slice(startIndex, endIndex + 1);
+
+        // Récupérer paramètres
+        const params = {
+            x: dataX,
+            y: dataY,
+            size_population: parseInt(document.getElementById('size-population').value),
+            size_echantillon: parseInt(document.getElementById('size-echantillon').value),
+            max_depth: parseInt(document.getElementById('max-depth').value),
+            max_iterations: parseInt(document.getElementById('max-iterations').value),
+            max_N_valeur: parseInt(document.getElementById('max-N-valeur').value),
+            seuil_fitness: parseFloat(document.getElementById('seuil-fitness').value),
+            tolerance_mutation: parseFloat(document.getElementById('tolerance-mutation').value),
+            funct_binaire: getSelectedValues('funct-binaire'),
+            funct_unaire: getSelectedValues('funct-unaire'),
+            mode_selection: document.getElementById('mode-selection').value,
+            mode_mariage: document.getElementById('mode-mariage').value,
+            mode_croisement: document.getElementById('mode-croisement').value,
+            mode_remplacement: document.getElementById('mode-remplacement').value,
+            mode_mutation: document.getElementById('mode-mutation').value,
+            startValue: document.getElementById('forecast-start').value,
+            horizon: document.getElementById('forecast-horizon').value,            
+            range_start: startIndex,
+            range_end: endIndex
+        };
+
+        // Connecter WebSocket
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function() {
+            ws.send(JSON.stringify(params));
+            isRunning = true;
+            btnStart.disabled = true;
+            btnStop.disabled = false;
+            statusMsg.textContent = 'Algorithme en cours...';
+            progressBar.max = 1;
+            progressBar.value = 0;
+            progressLabel.textContent = '0 / 0';
+            // Réinitialiser les graphiques
+            convGraph.data = [];
+            predGraph.points = [];
+            predGraph.lineData = [];
+            funcGraph.points = [];
+            funcGraph.lineData = [];
+            drawLine(convGraph);
+            drawScatterWithLine(predGraph);
+            drawScatterWithLine(funcGraph);
+            formulaDisplay.textContent = '—';
+            fitnessDisplay.textContent = '—';
+            iterationDisplay.textContent = '—';
+            timeDisplay.textContent = '—';
+        };
+
+        ws.onmessage = function(event) {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'progress') 
+            {
+                const value = Number(msg.value) || 0;
+                const max = Number(msg.max) || 1;
+                const message = msg.message || '';
+                progressBar.max = max;
+                progressBar.value = Math.min(value, max);
+                progressLabel.textContent = `${message} ${progressBar.value} / ${progressBar.max}`;
+                return;
+            }
+            else if (msg.type === 'update') 
+            {
+                // Mettre à jour les graphiques
+                const iter = msg.iteration;
+                const fit = msg.fitness;
+                const formula = msg.formula;
+                const yPred = Array.isArray(msg.y_pred) ? msg.y_pred : null;
+                const elapsed = msg.elapsed;
+                const tree = msg.tree;
+
+                // Convergence
+                const convData = convGraph.data || [];
+                convData.push({ x: iter, y: fit });
+                convGraph.data = convData;
+                drawLine(convGraph);
+
+                // Afficher tous les points de données, mais tracer la fonction seulement sur la plage sélectionnée
+                predGraph.points = dataX.map((xi, i) => ({ x: xi, y: dataY[i] }));
+                if (yPred && yPred.length === dataX.length && selectedX.length > 0) {
+                    const yPredSelected = yPred.slice(selectedStart, selectedEnd + 1);
+                    predGraph.lineData = selectedX.map((xi, i) => ({ x: xi, y: yPredSelected[i] }));
+                } else {
+                    predGraph.lineData = [];
+
+                }
+                drawScatterWithLine(predGraph);
+
+
+                // Formule
+                formulaDisplay.textContent = formula;
+                fitnessDisplay.textContent = fit.toFixed(6);
+                iterationDisplay.textContent = iter;
+                if (typeof elapsed === 'number') {
+                    timeDisplay.textContent = elapsed.toFixed(2) + 's';
+                } else {
+                    timeDisplay.textContent = '—';
+                }
+
+                // Résultats texte (n'affiche pas l'arbre)
+                const resultLines = [];
+                if (Array.isArray(yPred) && yPred.length > 0) {
+                    const resultX = selectedX.length > 0 ? selectedX : dataX;
+                    resultLines.push(`<div><strong>x ; y résultant :</strong></div>`);
+                    resultLines.push(`<div style="padding-left:10px; white-space:pre-wrap; word-break:break-word;">${resultX.map((x, i) => `${x}; ${Number(yPred[i]).toFixed(3)}`).join('\n')}</div>`);
+                }
+                if (resultContainer) resultContainer.innerHTML = resultLines.join('');
+
+                statusMsg.textContent = `Itération ${iter} - fitness ${fit.toFixed(4)}`;
+            } 
+            else if (msg.type === 'done') 
+            {
+                const fit = msg.best_fitness;
+                const formula = msg.best_formula;
+                const yPred = Array.isArray(msg.y_pred) ? msg.y_pred : null;
+                const yForcast = Array.isArray(msg.yForcast) ? msg.yForcast : null;
+                const elapsed = msg.elapsed;
+                if(fit !== undefined){
+                fitnessDisplay.textContent = fit.toFixed(6);
+                console.log('Algorithme terminé. Meilleure formule :', msg.best_formula, 'Fitness :', msg.best_fitness);
+                console.log('Prévision :', yForcast);
+                
+               funcGraph.points = dataX.map((xi, i) => ({ x: xi, y: dataY[i] }));
+                if (yPred && yPred.length === dataX.length && selectedX.length > 0) {
+                    const yPredSelected = yPred.slice(selectedStart, selectedEnd + 1);
+                    funcGraph.lineData = selectedX.map((xi, i) => ({ x: xi, y: yPredSelected[i] }));
+                } else {
+                    funcGraph.lineData = [];
+                }
+ 
+                const forecastStart = parseFloat(document.getElementById('forecast-start').value);
+                const forecastHorizon = parseInt(document.getElementById('forecast-horizon').value, 10);
+                // Prendre en charge deux formats possibles pour yForcast :
+                // - tableau d'objets {x, y}
+                // - tableau numérique [y0, y1, ...] (prévisions consécutives à partir de forecastStart)
+                if (formula && !Number.isNaN(forecastStart) && !Number.isNaN(forecastHorizon) && Array.isArray(yForcast)) {
+                    const startX = Number(forecastStart);
+                    // cas : tableau d'objets {x, y}
+                    if (yForcast.length > 0 && typeof yForcast[0] === 'object' && yForcast[0] !== null && 'x' in yForcast[0]) {
+                        const endX = startX + forecastHorizon;
+                        const forecastPoints = yForcast
+                            .filter(pt => typeof pt.x !== 'undefined' && pt.x >= startX && pt.x < endX)
+                            .slice(0, forecastHorizon);
+                        funcGraph.lineData2 = forecastPoints.map(pt => ({ x: pt.x, y: pt.y }));
+                    } else {
+                        // cas : tableau de nombres -> construire les points à partir de startX
+                        const numericYs = yForcast.filter(v => typeof v === 'number');
+                        const limited = numericYs.slice(0, forecastHorizon);
+                        funcGraph.lineData2 = limited.map((y, i) => ({ x: startX + i, y }));
+                    }
+                } else {
+                    funcGraph.lineData2 = [];
+                }
+
+
+                drawScatterWithLine(funcGraph);
+
+                // Afficher les valeurs de prévision sous le graphe
+                const forecastContainer = document.getElementById('forecast-values');
+                if (forecastContainer) {
+                    if (yForcast && yForcast.length > 0) {
+                        // two possible formats: objects {x,y} or numeric array [y0, y1,...]
+                        let lines = [];
+                        if (typeof yForcast[0] === 'object' && yForcast[0] !== null && 'x' in yForcast[0]) {
+                            lines = yForcast.map(pt => `${pt.x} ; ${Number(pt.y).toFixed(3)}`);
+                        } else {
+                            const startX = parseFloat(document.getElementById('forecast-start').value) || 0;
+                            lines = yForcast.map((y, i) => `${startX + i} ; ${Number(y).toFixed(3)}`);
+                        }
+                        forecastContainer.innerHTML = '<strong>Prévision (x, y)</strong>\n' + lines.join('\n');
+                    } else {
+                        forecastContainer.innerHTML = '<strong>Prévision (x, y)</strong>\nAucune prévision disponible.';
+                    }
+                }
+
+                formulaDisplay.textContent = msg.best_formula;
+                isRunning = false;
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                progressBar.value = progressBar.max;
+                progressLabel.textContent = `Terminé ${progressBar.value} / ${progressBar.max}`;
+                statusMsg.textContent = 'Terminé.';
+                }
+                if (ws) ws.close();
+            } 
+            else if (msg.type === 'error') 
+            {
+                statusMsg.textContent = 'Erreur : ' + msg.message;
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                isRunning = false;
+                if (ws) ws.close();
+            }
+        };
+
+        ws.onclose = function() {
+            isRunning = false;
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+            if (!statusMsg.textContent.includes('Terminé')) {
+                statusMsg.textContent = 'Connexion fermée.';
+            }
+        };
+    }
+
+    function stopAlgo() {
+        if (ws) {
+            ws.close();
+        }
+        isRunning = false;
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        statusMsg.textContent = 'Arrêt demandé.';
+    }
+
+    // Événements boutons
+    document.getElementById('btn-start').addEventListener('click', startAlgo);
+    document.getElementById('btn-stop').addEventListener('click', stopAlgo);
+
+    // Initialisation des graphiques
+    window.addEventListener('load', function() {
+        initGraphs();
+        // Exemple de données (si aucun fichier)
+        // On peut laisser vide.
+    });
+
+    function populateRangeSelectors(length) {
+        const startSelect = document.getElementById('data-range-start');
+        const endSelect = document.getElementById('data-range-end');
+        startSelect.innerHTML = '';
+        endSelect.innerHTML = '';
+        for (let i = 0; i < length; i++) {
+            const optionStart = document.createElement('option');
+            optionStart.value = i;
+            optionStart.textContent = `${i + 1} : ${dataX[i]}`;
+            startSelect.appendChild(optionStart);
+
+            const optionEnd = document.createElement('option');
+            optionEnd.value = i;
+            optionEnd.textContent = `${i + 1} : ${dataX[i]}`;
+            endSelect.appendChild(optionEnd);
+        }
+        startSelect.selectedIndex = 0;
+        endSelect.selectedIndex = length - 1;
+        document.getElementById('range-controls').style.display = 'flex';
+    }
+
+    function populateForecastSelectors(xData) {
+        const startSelect = document.getElementById('forecast-start');
+        const horizonSelect = document.getElementById('forecast-horizon');
+        startSelect.innerHTML = '';
+        horizonSelect.innerHTML = '';
+        if (!Array.isArray(xData) || xData.length === 0) {
+            document.getElementById('forecast-controls').style.display = 'none';
+            return;
+        }
+        const lastX = xData[xData.length - 1];
+        const baseStart = Math.round(lastX + 1);
+        for (let offset = 0; offset < 50; offset++) {
+            const value = baseStart + offset;
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            startSelect.appendChild(option);
+        }
+        for (let h = 1; h <= 50; h++) {
+            const option = document.createElement('option');
+            option.value = h;
+            option.textContent = h;
+            horizonSelect.appendChild(option);
+        }
+        startSelect.value = baseStart;
+        horizonSelect.value = 10;
+        document.getElementById('forecast-controls').style.display = 'flex';
+    }
+
+    // Redimensionnement
+    window.addEventListener('resize', function() {
+        // Re-draw pourrait être implémenté, mais on garde simple
+    });
+</script>
+</body>
+</html>
