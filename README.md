@@ -16,7 +16,7 @@ Le backend est basé sur FastAPI et le frontend est livré dans le dossier 'fron
 
 ## Structure du projet
 
-'''text
+'''
 Web/
 ├── algo/                  # Implémentation du moteur GP
 ├── frontend/              # Interface utilisateur HTML/JS
