@@ -16,7 +16,7 @@ Le backend est basé sur FastAPI et le frontend est livré dans le dossier 'fron
 
 ## Structure du projet
 
-'''
+```text
 Web/
 ├── algo/                  # Implémentation du moteur GP
 ├── frontend/              # Interface utilisateur HTML/JS
@@ -26,7 +26,7 @@ Web/
 ├── requirements.txt       # Dépendances Python
 ├── web_callback_ext.py    # Callback WebSocket pour les messages temps réel
 └── README.md              # Ce fichier
-'''
+```
 
 ## Prérequis
 
@@ -38,7 +38,7 @@ Web/
 
 Depuis le dossier 'Web' :
 
-'''bash
+```bash
 cd Web
 python -m venv .venv
 # Windows
@@ -46,42 +46,42 @@ python -m venv .venv
 # Linux/macOS
 source .venv/bin/activate
 pip install -r requirements.txt
-'''
+```
 
 ## Lancement du serveur web
 
-'''bash
+```bash
 cd Web
 uvicorn main:app --reload
-'''
+```
 
 Puis ouvrez dans le navigateur :
 
-'''text
+```text
 http://127.0.0.1:8000
-'''
+```
 
 Le backend expose un WebSocket sur :
 
-'''text
+```text
 ws://127.0.0.1:8000/ws
-'''
+```
 
 ## Lancement en ligne de commande
 
 Le projet inclut aussi un mode CLI pour tester le moteur GP sans navigateur :
 
-'''bash
+```bash
 cd Web
 python maincli.py --x 0,1,2,3 --y 0,1,4,9
-'''
+```
 
 Ou en lisant un fichier de données :
 
-'''bash
+```bash
 cd Web
 python maincli.py --data-file ../data/sample.csv
-'''
+```
 
 ## Format des données
 
@@ -89,13 +89,13 @@ Les données attendues sont de type 'x,y' ou 'x ; y' en colonnes.
 
 Exemple :
 
-'''csv
+```csv
 0;0
 1;1
 2;4
 3;9
 4;16
-'''
+```
 
 Le système utilise les points '(x, y)' pour estimer une formule pouvant approximer la relation.
 
@@ -131,12 +131,12 @@ La configuration est gérée côté serveur via 'ConfigToolsGP' et peut être aj
 
 Le fichier 'requirements.txt' contient les dépendances principales :
 
-'''text
+```text
 fastapi
 uvicorn[standard]
 websockets
 numpy
-'''
+```
 
 ## Points d'attention
 
